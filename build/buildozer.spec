@@ -14,7 +14,7 @@ android.presplash_color = #0A1637
 android.api = 35
 android.minapi = 24
 android.sdk_path = /usr/local/lib/android/sdk
-android.ndk = 27b
+android.ndk = 25b
 # نسخة أولى سريعة لهواتف Android الحديثة
 android.archs = arm64-v8a
 android.add_src = %(source.dir)s/src
