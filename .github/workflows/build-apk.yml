@@ -34,6 +34,8 @@ jobs:
         run: |
           export ANDROIDSDK="$ANDROID_HOME"
           export ANDROID_HOME="$ANDROIDSDK"
+          mkdir -p "$ANDROIDSDK/tools/bin"
+          ln -sf "$ANDROIDSDK/cmdline-tools/latest/bin/sdkmanager" "$ANDROIDSDK/tools/bin/sdkmanager"
           buildozer android debug
       - name: Upload APK
         uses: actions/upload-artifact@v4
