@@ -21,7 +21,11 @@ jobs:
       - name: Install Python build tools
         run: python3 -m pip install --upgrade pip buildozer cython==0.29.37
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          mkdir -p "$HOME/.buildozer/android/platform/android-sdk/licenses"
+          if [ -d "$ANDROID_HOME/licenses" ]; then cp -f "$ANDROID_HOME/licenses/"* "$HOME/.buildozer/android/platform/android-sdk/licenses/" || true; fi
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "build-tools;37.0.0" "platforms;android-35" || true
       - name: Build debug APK
         working-directory: build
         run: buildozer android debug
