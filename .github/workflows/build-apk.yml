@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      ANDROIDSDK: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +31,10 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "build-tools;37.0.0" "platforms;android-35" || true
       - name: Build debug APK
         working-directory: build
-        run: buildozer android debug
+        run: |
+          export ANDROIDSDK="$ANDROID_HOME"
+          export ANDROID_HOME="$ANDROIDSDK"
+          buildozer android debug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
