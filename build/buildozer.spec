@@ -24,7 +24,7 @@ android.enable_androidx = True
 android.private_storage = True
 android.allow_backup = False
 android.logcat_filters = *:S python:D
-p4a.branch = master
+p4a.branch = v2024.01.21
 
 [buildozer]
 log_level = 2
