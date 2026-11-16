@@ -15,8 +15,8 @@ android.api = 35
 android.minapi = 24
 android.sdk_path = /usr/local/lib/android/sdk
 android.ndk = 25b
-# نسخة أولى سريعة لهواتف Android الحديثة
-android.archs = arm64-v8a
+# توافق هواتف Android الحديثة والقديمة
+android.archs = arm64-v8a,armeabi-v7a
 android.add_src = %(source.dir)s/src
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,POST_NOTIFICATIONS,USE_BIOMETRIC,VIBRATE
 android.enable_androidx = True
