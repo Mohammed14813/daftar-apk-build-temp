@@ -13,6 +13,7 @@ presplash.filename = %(source.dir)s/presplash.png
 android.presplash_color = #0A1637
 android.api = 35
 android.minapi = 24
+android.sdk_path = /usr/local/lib/android/sdk
 android.ndk = 27b
 # هواتف ARM الفعلية، إضافة إلى x86/x86_64 عند التشغيل على المحاكيات
 android.archs = arm64-v8a,armeabi-v7a,x86,x86_64
