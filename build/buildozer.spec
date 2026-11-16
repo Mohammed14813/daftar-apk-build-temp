@@ -18,7 +18,6 @@ android.ndk = 25b
 # نسخة أولى سريعة لهواتف Android الحديثة
 android.archs = arm64-v8a
 android.add_src = %(source.dir)s/src
-android.add_resources = %(source.dir)s/res
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,POST_NOTIFICATIONS,USE_BIOMETRIC,VIBRATE
 android.enable_androidx = True
 android.private_storage = True
