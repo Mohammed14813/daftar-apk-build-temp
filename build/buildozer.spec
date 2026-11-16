@@ -15,8 +15,8 @@ android.api = 35
 android.minapi = 24
 android.sdk_path = /usr/local/lib/android/sdk
 android.ndk = 27b
-# معماريتا الهواتف الفعلية: أجهزة Android الحديثة والقديمة
-android.archs = arm64-v8a,armeabi-v7a
+# نسخة أولى سريعة لهواتف Android الحديثة
+android.archs = arm64-v8a
 android.add_src = %(source.dir)s/src
 android.add_resources = %(source.dir)s/res
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,POST_NOTIFICATIONS,USE_BIOMETRIC,VIBRATE
@@ -24,7 +24,7 @@ android.enable_androidx = True
 android.private_storage = True
 android.allow_backup = False
 android.logcat_filters = *:S python:D
-p4a.branch = develop
+p4a.branch = master
 
 [buildozer]
 log_level = 2
