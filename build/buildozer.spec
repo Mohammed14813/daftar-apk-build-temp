@@ -15,8 +15,8 @@ android.api = 35
 android.minapi = 24
 android.sdk_path = /usr/local/lib/android/sdk
 android.ndk = 27b
-# هواتف ARM الفعلية، إضافة إلى x86/x86_64 عند التشغيل على المحاكيات
-android.archs = arm64-v8a,armeabi-v7a,x86,x86_64
+# معماريتا الهواتف الفعلية: أجهزة Android الحديثة والقديمة
+android.archs = arm64-v8a,armeabi-v7a
 android.add_src = %(source.dir)s/src
 android.add_resources = %(source.dir)s/res
 android.permissions = INTERNET,CAMERA,RECORD_AUDIO,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_CONNECT,BLUETOOTH_SCAN,POST_NOTIFICATIONS,USE_BIOMETRIC,VIBRATE
