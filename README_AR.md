@@ -41,3 +41,7 @@ zip -q -j ../build/app-bundle.zip main.py accounting_app_v2.py notifier_service.
 ```
 
 ثم نفّذ البناء من مجلد `build`.
+
+## مصدر تحديثات التطبيق
+
+الملف المعتمد للتحديثات هو `app-bundle.zip` الموجود في جذر هذا المستودع على فرع `main`. يجب أن يكون Worker التحديث مضبوطًا على المستودع `Mohammed14813/daftar-apk-build-temp`.
