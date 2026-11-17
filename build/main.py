@@ -2,9 +2,17 @@
 """
 main.py  —  مُحمِّل «دفتر المحاسب»
 ----------------------------------
-هذا هو الملف الذي تبنيه داخل الـ APK. عند أول تشغيل ينزّل ملفات التطبيق من جيت هاب
-ويشغّلها مباشرة، وفي كل تشغيل بعدها يفحص إن كان هناك تحديث جديد (وإن لم يوجد إنترنت
-يشغّل النسخة المحفوظة). لتحديث التطبيق عند العملاء يكفي رفع الملفات الجديدة إلى جيت هاب.
+التدفق (تلقائي بالكامل، بدون أي زر، وبدون إغلاق التطبيق):
+  1) إن وُجدت نسخة محفوظة من قبل تُشغَّل فوراً.
+  2) إن لم توجد: يُنزَّل app-bundle.zip من جيت هاب تلقائياً (مهلة قصيرة)،
+     وإن لم يتوفر إنترنت تُفكّ الحزمة المضمّنة داخل الـ APK.
+  3) تُشغَّل الواجهة الحقيقية في نفس العملية ونفس نافذة Kivy.
+  4) في الخلفية يفحص التطبيق جيت هاب كل 5 دقائق وينزّل أي تحديث بصمت
+     ويُطبَّق عند الفتح القادم.
+
+سبب الخروج المفاجئ سابقاً: كان اللودر ينشئ تطبيق Kivy أولاً ثم يستدعي stop()
+ثم يشغّل تطبيق Kivy ثانياً؛ وعلى أندرويد إغلاق التطبيق الأول ينهي النشاط
+(Activity) فيخرج المستخدم. الآن لا يُنشأ إلا تطبيق Kivy واحد.
 """
 import os
 import sys
@@ -319,24 +327,24 @@ def _install_bytes(data, progress=lambda p: None, stage_only=False):
     return n
 
 
-def _download(progress, status, stage_only=False):
-    """ينزّل المستودع كملف zip ويستخرجه إلى مجلد مؤقت ثم يبدّل به المجلد القديم."""
-    url = _bundle_url()
+def _download(progress=lambda p: None, status=lambda t: None, stage_only=False,
+              timeout=60, remote_sha=None):
+    """ينزّل app-bundle.zip من جيت هاب ويثبّته (أو يحفظه للفتح القادم إن stage_only).
+    يرمي استثناء عند الفشل. يسجّل رقم النسخة حتى لا يُعاد تنزيلها في كل مرة."""
+    if remote_sha is None:
+        try:
+            remote_sha = _remote_sha()
+        except Exception:
+            remote_sha = ""
     status("جاري تنزيل ملفات التطبيق...")
-    try:
-        data = _get(url, timeout=60, progress=lambda p: progress(0.1 + 0.6 * p))
-    except Exception:
-        # في أول تشغيل لا نوقف التطبيق بسبب شبكة بطيئة أو حجب GitHub.
-        # نستخدم الحزمة المضمنة داخل APK ثم يحاول الفحص التحديث لاحقًا.
-        local_bundle = os.path.join(LOADER_DIR, BUNDLE_FILE)
-        if _have_code() or not os.path.exists(local_bundle):
-            raise
-        status("تعذر الاتصال؛ جاري تشغيل النسخة المضمنة...")
-        with open(local_bundle, "rb") as f:
-            data = f.read()
+    data = _get(_bundle_url(), timeout=timeout, progress=lambda p: progress(0.1 + 0.6 * p))
     status("جاري التجهيز...")
-    return _install_bytes(data, progress, stage_only)
-
+    n = _install_bytes(data, progress, stage_only)
+    if stage_only:
+        _write_stamp(pending=remote_sha or "unknown")
+    else:
+        _write_stamp(sha=remote_sha or "unknown", pending="", time=int(time.time()))
+    return n
 
 def _write_stamp(**kw):
     st = _read_stamp()
@@ -361,169 +369,24 @@ def _apply_staged():
             traceback.print_exc()
 
 
-def _restart_process():
-    """يعيد تشغيل التطبيق (أندرويد) ليبدأ بالنسخة الجديدة."""
-    try:
-        if platform == "android":
-            from jnius import autoclass
-            PA = autoclass("org.kivy.android.PythonActivity")
-            act = PA.mActivity
-            Intent = autoclass("android.content.Intent")
-            PI = autoclass("android.app.PendingIntent")
-            AM = autoclass("android.app.AlarmManager")
-            Ctx = autoclass("android.content.Context")
-            Sys = autoclass("java.lang.System")
-            Proc = autoclass("android.os.Process")
-            it = act.getPackageManager().getLaunchIntentForPackage(act.getPackageName())
-            it.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK)
-            pi = PI.getActivity(act, 0, it, PI.FLAG_IMMUTABLE | PI.FLAG_CANCEL_CURRENT)
-            am = act.getSystemService(Ctx.ALARM_SERVICE)
-            am.set(AM.RTC, Sys.currentTimeMillis() + 500, pi)
-            act.finish()
-            Proc.killProcess(Proc.myPid())
-        else:
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-    except Exception:
-        traceback.print_exc()
-
-
-class UpdateDialog(FloatLayout):
-    """نافذة في وسط الشاشة: «يوجد تحديث جديد» مع زرّي (تحميل) و(تحميل لاحقاً)."""
-
-    def __init__(self, on_download, on_later, **kw):
-        super().__init__(**kw)
-        self.on_download, self.on_later = on_download, on_later
-        self.mode = "ask"
-        with self.canvas.before:
-            Color(0, 0, 0, 0.55)
-            self._dim = Rectangle()
-            Color(1, 1, 1, 1)
-            self._card = RoundedRectangle(radius=[dp(22)])
-            Color(*BLUE)
-            self._bar = RoundedRectangle(radius=[dp(22), dp(22), 0, 0])
-        self.title = Label(text=ar("يوجد تحديث جديد"), font_name=_FONT, font_size=dp(19), color=(1, 1, 1, 1),
-                           size_hint=(None, None))
-        self.msg = Label(text=ar("يوجد تحديث جديد للتطبيق.\nهل تود تحميله الآن؟"), font_name=_FONT,
-                         font_size=dp(15), color=(0.12, 0.16, 0.24, 1), halign="center", valign="middle",
-                         size_hint=(None, None))
-        self.b_ok = self._btn("تحميل", BLUE)
-        self.b_later = self._btn("تحميل لاحقاً", (0.88, 0.90, 0.93, 1), (0.25, 0.3, 0.4, 1))
-        for w in (self.title, self.msg, self.b_ok, self.b_later):
-            self.add_widget(w)
-        self.bind(size=self._lay, pos=self._lay)
-
-    def _btn(self, text, col, tcol=(1, 1, 1, 1)):
-        b = Label(text=ar(text), font_name=_FONT, font_size=dp(16), color=tcol, size_hint=(None, None))
-        with b.canvas.before:
-            Color(*col)
-            b._r = RoundedRectangle(radius=[dp(14)])
-        b.bind(pos=lambda w, v: setattr(w._r, "pos", w.pos), size=lambda w, v: setattr(w._r, "size", w.size))
-        return b
-
-    def _lay(self, *a):
-        W, H = self.size
-        self._dim.pos, self._dim.size = self.pos, self.size
-        cw, ch = min(W * 0.88, dp(340)), dp(230)
-        cx, cy = self.x + (W - cw) / 2.0, self.y + (H - ch) / 2.0
-        self._card.pos, self._card.size = (cx, cy), (cw, ch)
-        self._bar.pos, self._bar.size = (cx, cy + ch - dp(54)), (cw, dp(54))
-        self.title.size, self.title.pos = (cw, dp(54)), (cx, cy + ch - dp(54))
-        self.msg.size, self.msg.pos = (cw - dp(30), dp(80)), (cx + dp(15), cy + dp(78))
-        self.msg.text_size = self.msg.size
-        bw = (cw - dp(54)) / 2.0
-        if self.mode in ("ask", "done"):
-            self.b_ok.size = self.b_later.size = (bw, dp(46))
-            self.b_ok.pos = (cx + dp(18) + bw + dp(18), cy + dp(20))
-            self.b_later.pos = (cx + dp(18), cy + dp(20))
-            self.b_ok.opacity = self.b_later.opacity = 1
-        elif self.mode == "info":
-            self.b_ok.size = (cw - dp(36), dp(46))
-            self.b_ok.pos = (cx + dp(18), cy + dp(20))
-            self.b_ok.opacity, self.b_later.opacity = 1, 0
-        else:
-            self.b_ok.opacity = self.b_later.opacity = 0
-
-    def set_mode(self, mode, text=None, ok_text=None):
-        self.mode = mode
-        if text is not None:
-            self.msg.text = ar(text)
-        if ok_text:
-            self.b_ok.text = ar(ok_text)
-        self._lay()
-
-    def on_touch_down(self, touch):
-        if self.mode in ("ask", "done"):
-            if self.b_ok.opacity and self.b_ok.collide_point(*touch.pos):
-                self.on_download()
-            elif self.b_later.opacity and self.b_later.collide_point(*touch.pos):
-                self.on_later()
-        elif self.mode == "info" and self.b_ok.collide_point(*touch.pos):
-            self.on_later()
-        return True                        # النافذة تحجب ما خلفها
-
-
 def _watch_updates():
-    """يعمل في الخلفية أثناء تشغيل التطبيق: عند توفر إنترنت وتحديث جديد يسأل المستخدم."""
-    from kivy.core.window import Window
-    snooze = [0.0]
-
-    def ask(remote, done_ev):
-        dlg = UpdateDialog(None, None)
-
-        def close():
-            try:
-                Window.remove_widget(dlg)
-            except Exception:
-                pass
-
-        def later():
-            snooze[0] = time.time() + 1800        # نسأله مرة ثانية بعد نصف ساعة
-            close()
-            done_ev.set()
-
-        def download():
-            dlg.set_mode("busy", "جاري تحميل التحديث...")
-
-            def work():
-                try:
-                    _download(lambda p: None, lambda t: None, stage_only=True)
-                    _write_stamp(pending=remote)
-                    def ready():
-                        dlg.set_mode("done", "تم تحميل التحديث بنجاح.\nهل تريد إعادة تشغيل التطبيق الآن؟",
-                                     "إعادة التشغيل")
-                        dlg.on_download = _restart_process
-                        dlg.on_later = lambda: (close(), done_ev.set())
-                    Clock.schedule_once(lambda dt: ready(), 0)
-                except Exception:
-                    traceback.print_exc()
-                    snooze[0] = time.time() + 600
-                    def failed():
-                        dlg.set_mode("info", "تعذر تحميل التحديث. سنحاول لاحقاً.", "حسناً")
-                        dlg.on_later = lambda: (close(), done_ev.set())
-                    Clock.schedule_once(lambda dt: failed(), 0)
-            threading.Thread(target=work, daemon=True).start()
-
-        dlg.on_download, dlg.on_later = download, later
-        Window.add_widget(dlg)
-
-    time.sleep(4)
+    """خيط خلفي: كل 5 دقائق يفحص جيت هاب، وعند وجود نسخة أحدث ينزّلها تلقائياً وبصمت
+    (بدون نوافذ أو أزرار). تُطبَّق عند فتح التطبيق في المرة القادمة."""
+    time.sleep(8)
     while True:
         try:
-            if time.time() >= snooze[0]:
-                st = _read_stamp()
-                cur = st.get("pending") or st.get("sha") or ""
-                remote = _remote_sha()
-                if remote and cur and remote != cur:
-                    ev = threading.Event()
-                    Clock.schedule_once(lambda dt, r=remote, e=ev: ask(r, e), 0)
-                    ev.wait()
+            st = _read_stamp()
+            cur = st.get("pending") or st.get("sha") or ""
+            remote = _remote_sha()
+            if remote and remote != cur:
+                _download(stage_only=True, remote_sha=remote)
         except Exception:
             pass                                   # لا إنترنت: نحاول في الدورة القادمة
         time.sleep(300)
 
 
 def launch_app():
-    """يشغّل التطبيق الحقيقي من الملفات المنزّلة."""
+    """يشغّل التطبيق الحقيقي من الملفات المنزّلة داخل نفس العملية."""
     import runpy
     sys.path.insert(0, CODE_DIR)
     for k in ("main", "accounting_app", "accounting_app_v2"):
@@ -644,103 +507,30 @@ class Splash(FloatLayout):
             RoundedRectangle(pos=(bx, by), size=(max(bh, bw * max(0.02, min(1.0, self._shown))), bh), radius=[bh / 2.0])
 
 
-def _request_startup_permissions():
-    """لا تطلب أذونات حساسة عند التشغيل؛ تُطلب عند استخدام الميزة نفسها."""
-    return
 
-class LoaderApp(App):
+class ErrorApp(App):
+    """تُعرض فقط إذا تعذّر تحضير الملفات كلياً (لا نسخة محفوظة ولا إنترنت ولا حزمة مضمّنة)."""
     title = "Daftar"
 
     def build(self):
-        self.ui = Splash()
-        if _have_code():
-            self.ui.set_status("الواجهة محفوظة؛ اضغط لتشغيلها")
-            self.ui.btn.text = ar("تشغيل الواجهة")
-        else:
-            self.ui.set_status("اضغط لتحميل الواجهة")
-            self.ui.btn.text = ar("تحميل الواجهة")
-        self.ui.show_retry(self.begin)
-        return self.ui
-
-    # ---- خيط التنزيل ----
-    def begin(self):
-        self.ui.hide_retry()
-        self.ui.p = 0.05
-        if _have_code():
-            self.ui.p = 1.0
-            self.ui.set_status("جاري تشغيل الواجهة...")
-            self._post(self._go)
-            return
-        self.ui.set_status("جاري تحميل الواجهة...")
-        threading.Thread(target=self._work, daemon=True).start()
-
-    def _post(self, fn):
-        Clock.schedule_once(lambda dt: fn(), 0)
-
-    def _prog(self, p):
-        self._post(lambda: setattr(self.ui, "p", p))
-
-    def _stat(self, t, err=False):
-        self._post(lambda: self.ui.set_status(t, err))
-
-    def _work(self):
-        try:
-            # لا فحص SHA ولا تنزيل تلقائي؛ هذه الدالة لا تُستدعى إلا بعد ضغط الزر.
-            _download(self._prog, self._stat)
-            _write_stamp(sha="manual", pending="", time=int(time.time()))
-            self._prog(1.0)
-            self._stat("اكتمل التحميل؛ جاري تشغيل الواجهة...")
-            time.sleep(0.25)
-            self._post(self._go)
-        except Exception:
-            traceback.print_exc()
-            self._stat("فشل تحميل الواجهة. اضغط لإعادة المحاولة", True)
-            self._post(lambda: self.ui.show_retry(self.begin))
-
-    def _ask_update(self, remote):
-        self.ui.set_status("")
-        dlg = UpdateDialog(None, None)
-
-        def later():
-            self.ui.remove_widget(dlg)
-            self._go()
-
-        def download():
-            dlg.set_mode("busy", "جاري تحميل التحديث...")
-            self.ui.p = 0.1
-
-            def work():
-                try:
-                    _download(self._prog, lambda t: None)
-                    _write_stamp(sha=remote, pending="", time=int(time.time()))
-                except Exception:
-                    traceback.print_exc()
-                self._post(lambda: (self.ui.remove_widget(dlg), self._go()))
-            threading.Thread(target=work, daemon=True).start()
-
-        dlg.on_download, dlg.on_later = download, later
-        self.ui.add_widget(dlg)
-
-    def _go(self):
-        """ينهي شاشة اللودر؛ بعد عودة run() يشغّل __main__ الواجهة المحلية.
-        لا نقتل عملية Android ولا نستخدم AlarmManager حتى لا يخرج التطبيق."""
-        self.launch = True
-        self.stop()
+        ui = Splash()
+        ui.set_status("تعذّر تجهيز التطبيق. تأكد من الإنترنت ثم أعد فتح التطبيق", True)
+        return ui
 
 
 def _install_bundled():
-    """أول تشغيل: نفكّ الحزمة المضمّنة داخل APK محلياً (بدون إنترنت وبدون إعادة تشغيل)."""
+    """يفكّ الحزمة المضمّنة داخل الـ APK محلياً (بدون إنترنت)."""
     local_bundle = os.path.join(LOADER_DIR, BUNDLE_FILE)
     if not os.path.exists(local_bundle):
         return False
     try:
         with open(local_bundle, "rb") as f:
             _install_bytes(f.read())
-        # "bundled" يختلف عن أي sha بعيد، فيعرض التطبيق خيار التحديث إن وُجدت نسخة أحدث
+        # "bundled" يختلف عن أي sha بعيد، فينزّل الخيط الخلفي نسخة جيت هاب لاحقاً إن وُجدت
         _write_stamp(sha="bundled", pending="", time=int(time.time()))
         return True
     except Exception:
-        traceback.print_exc()
+        _log_crash("install bundled")
         return False
 
 
@@ -752,10 +542,21 @@ def _log_crash(tag):
         pass
 
 
-if __name__ == "__main__":
+def prepare_code():
+    """يجهّز ملفات التطبيق قبل إنشاء أي تطبيق Kivy. يرجع True إذا صار التطبيق جاهزاً."""
     _apply_staged()
-    _app = LoaderApp()
-    _app.launch = False
-    _app.run()
-    if getattr(_app, "launch", False) and _have_code():
+    if _have_code():
+        return True
+    try:                                            # تنزيل تلقائي من جيت هاب
+        _download(timeout=12)
+        return True
+    except Exception:
+        _log_crash("github download")
+    return _install_bundled()                       # لا إنترنت: الحزمة المضمّنة
+
+
+if __name__ == "__main__":
+    if prepare_code():
         launch_app()
+    else:
+        ErrorApp().run()
