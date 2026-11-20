@@ -1,6 +1,6 @@
 // Cloudflare Worker: app -> Supabase Edge Function -> this Worker -> GitHub
-// Secrets: GITHUB_TOKEN, optional GITHUB_REPO (default Mohammed14813/daftar-apk-build-temp)
-const REPO = (env) => env.GITHUB_REPO || "Mohammed14813/daftar-apk-build-temp";
+// Secrets: GITHUB_TOKEN, optional GITHUB_REPO (default Mohammed14813/Integrated-Accountant-Updates)
+const REPO = (env) => env.GITHUB_REPO || "Mohammed14813/Integrated-Accountant-Updates";
 const common = { "access-control-allow-origin": "*", "cache-control": "no-store" };
 function reply(body, status=200, headers={}) { return new Response(body, {status, headers: {...common, ...headers}}); }
 async function gh(path, env, accept="application/vnd.github+json") {

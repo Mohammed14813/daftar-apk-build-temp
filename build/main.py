@@ -45,6 +45,9 @@ from kivy.metrics import dp
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.popup import Popup
 from kivy.utils import platform
 
 BLUE = (0.10, 0.27, 0.80, 1)
@@ -369,9 +372,63 @@ def _apply_staged():
             traceback.print_exc()
 
 
+_update_prompt_active = False
+_update_prompt_sha = ""
+
+
+def _download_after_consent(remote_sha, popup, status_label):
+    """ينزّل التحديث بعد موافقة المستخدم، من دون تنزيل صامت."""
+    global _update_prompt_active
+    popup.dismiss()
+    status_label.text = ar("جاري تحميل التحديث...")
+
+    def work():
+        global _update_prompt_active
+        try:
+            _download(stage_only=True, remote_sha=remote_sha)
+            Clock.schedule_once(lambda dt: status_label.__setattr__("text", ar("تم تحميل التحديث، سيُطبَّق عند فتح التطبيق القادم")), 0)
+        except Exception:
+            Clock.schedule_once(lambda dt: status_label.__setattr__("text", ar("تعذر تحميل التحديث، حاول لاحقًا")), 0)
+        finally:
+            _update_prompt_active = False
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _show_update_prompt(remote_sha):
+    """يعرض نافذة تأكيد على خيط واجهة Kivy قبل بدء تنزيل التحديث."""
+    global _update_prompt_active, _update_prompt_sha
+    if _update_prompt_active or not remote_sha:
+        return
+    _update_prompt_active = True
+    _update_prompt_sha = remote_sha
+
+    box = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(16))
+    msg = Label(text=ar("يوجد تحديث جديد لتطبيق دفتر المحاسب.\nهل تريد تحميله الآن؟"),
+                font_name=_FONT, font_size=dp(16), halign="center", valign="middle")
+    msg.bind(size=lambda w, size: setattr(w, "text_size", (size[0], None)))
+    buttons = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
+    no_btn = Button(text=ar("ليس الآن"), font_name=_FONT)
+    yes_btn = Button(text=ar("نعم، تحميل"), font_name=_FONT)
+    buttons.add_widget(no_btn)
+    buttons.add_widget(yes_btn)
+    box.add_widget(msg)
+    box.add_widget(buttons)
+    popup = Popup(title=ar("تحديث متوفر"), content=box, size_hint=(0.88, None), height=dp(220),
+                  auto_dismiss=False)
+
+    def later(*_):
+        global _update_prompt_active
+        popup.dismiss()
+        _update_prompt_active = False
+
+    no_btn.bind(on_release=later)
+    yes_btn.bind(on_release=lambda *_: _download_after_consent(remote_sha, popup, msg))
+    popup.open()
+
+
 def _watch_updates():
-    """خيط خلفي: كل 5 دقائق يفحص جيت هاب، وعند وجود نسخة أحدث ينزّلها تلقائياً وبصمت
-    (بدون نوافذ أو أزرار). تُطبَّق عند فتح التطبيق في المرة القادمة."""
+    """يفحص التحديثات دوريًا، ولا يبدأ التنزيل إلا بعد موافقة المستخدم."""
     time.sleep(8)
     while True:
         try:
@@ -379,7 +436,7 @@ def _watch_updates():
             cur = st.get("pending") or st.get("sha") or ""
             remote = _remote_sha()
             if remote and remote != cur:
-                _download(stage_only=True, remote_sha=remote)
+                Clock.schedule_once(lambda dt, sha=remote: _show_update_prompt(sha), 0)
         except Exception:
             pass                                   # لا إنترنت: نحاول في الدورة القادمة
         time.sleep(300)
@@ -543,16 +600,20 @@ def _log_crash(tag):
 
 
 def prepare_code():
-    """يجهّز ملفات التطبيق قبل إنشاء أي تطبيق Kivy. يرجع True إذا صار التطبيق جاهزاً."""
+    """يجهّز الملفات؛ يفضّل الحزمة المضمّنة، ثم يطلب التأكيد للتحديثات اللاحقة."""
     _apply_staged()
     if _have_code():
         return True
-    try:                                            # تنزيل تلقائي من جيت هاب
+    # الحزمة المضمّنة هي النسخة الأساسية عند أول تشغيل، فلا يبدأ تنزيلًا مخفيًا.
+    if _install_bundled():
+        return True
+    try:
+        # حالة نادرة: APK بلا حزمة مضمّنة. لا يوجد كود يمكن تشغيله قبل تنزيله.
         _download(timeout=12)
         return True
     except Exception:
         _log_crash("github download")
-    return _install_bundled()                       # لا إنترنت: الحزمة المضمّنة
+    return False
 
 
 if __name__ == "__main__":
